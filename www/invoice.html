@@ -34,7 +34,7 @@ th{font-size:12px;color:#6b7280;font-weight:600}
 <body>
 
 <h1 id="titleRu" class="hidden">Счёт на оплату</h1>
-<h1 id="titleDe" class="hidden">Rechnung</h1>
+<h1 id="titleSk" class="hidden">Faktúra</h1>
 
 <!-- BUILDER (RU) -->
 <div class="card hidden" id="builder">
@@ -43,8 +43,8 @@ th{font-size:12px;color:#6b7280;font-weight:600}
     <div><label>Номер заказа</label><input id="b_order"></div>
     <div><label>Наименование</label><input id="b_title"></div>
     <div><label>Количество</label><input id="b_qty" type="number" value="1" min="1"></div>
-    <div><label>Цена за 1 (EUR)</label><input id="b_price" type="number" step="0.01"></div>
-    <div><label>Доставка (EUR)</label><input id="b_ship" type="number" step="0.01" value="0"></div>
+    <div><label>Цена за 1 (EUR, с DPH)</label><input id="b_price" type="number" step="0.01"></div>
+    <div><label>Доставка (EUR, с DPH)</label><input id="b_ship" type="number" step="0.01" value="0"></div>
   </div>
 
   <div class="row" style="margin-top:12px">
@@ -55,12 +55,12 @@ th{font-size:12px;color:#6b7280;font-weight:600}
   <div id="out" class="linkbox" style="margin-top:12px"></div>
 </div>
 
-<!-- INVOICE (DE) -->
+<!-- INVOICE (SK) -->
 <div class="card hidden" id="invoice">
   <div class="topbar">
     <div class="meta">
-      <div style="font-weight:800;font-size:18px">Rechnung</div>
-      <small>Bestellnummer: <span id="t_order">—</span></small>
+      <div style="font-weight:800;font-size:18px">Faktúra</div>
+      <small>Číslo objednávky: <span id="t_order">—</span></small>
     </div>
     <div class="logo-box"><img id="logoImg" alt="Logo"></div>
   </div>
@@ -69,31 +69,34 @@ th{font-size:12px;color:#6b7280;font-weight:600}
     <thead>
       <tr>
         <th>Produkt</th>
-        <th>Menge</th>
-        <th>Preis</th>
-        <th>Summe</th>
+        <th>Množstvo</th>
+        <th>Cena (s DPH)</th>
+        <th>Suma (s DPH)</th>
       </tr>
     </thead>
     <tbody>
       <tr>
         <td id="t_title"></td>
         <td id="t_qty"></td>
-        <td id="t_price"></td>
-        <td id="t_sum"></td>
+        <td id="t_price_gross"></td>
+        <td id="t_sum_gross"></td>
       </tr>
     </tbody>
   </table>
 
   <div class="totals">
     <table>
-      <tr><td>Zwischensumme</td><td id="t_subtotal"></td></tr>
-      <tr><td>Versand</td><td id="t_ship"></td></tr>
-      <tr><td class="grand">Gesamt</td><td class="grand" id="t_total"></td></tr>
+      <tr><td>Medzisúčet (bez DPH)</td><td id="t_subtotal_net"></td></tr>
+      <tr><td>DPH <span id="t_vat_rate_label"></span></td><td id="t_vat"></td></tr>
+      <tr><td>Doprava (s DPH)</td><td id="t_ship_gross"></td></tr>
+      <tr><td class="grand">Celkom (s DPH)</td><td class="grand" id="t_total_gross"></td></tr>
     </table>
   </div>
 
-  <button class="primary" id="pay" style="margin-top:14px">Jetzt bezahlen</button>
-  <div class="hint" id="payHint">Nach dem Klick werden Sie zur Zahlungsseite weitergeleitet.</div>
+  <button class="primary" id="pay" style="margin-top:14px">Zaplatiť teraz</button>
+  <div class="hint" id="payHint">
+    Po kliknutí budete presmerovaný na platobnú stránku.
+  </div>
 </div>
 
 <script>
@@ -105,6 +108,9 @@ const LOGO_URL = "https://yoursite.com/logo.png";
 const INVOICE_API_URL = "/api/create_invoice_checkout.php";
 
 const CURRENCY = "EUR";
+
+// Словакия: DPH (НДС). ВВОДИМЫЕ ЦЕНЫ ВКЛЮЧАЮТ НАЛОГ (GROSS).
+const VAT_RATE = 0.20; // 20%
 /* ===================== */
 
 document.getElementById("logoImg").src = LOGO_URL;
@@ -113,15 +119,20 @@ const qs = new URLSearchParams(location.search);
 const isAdmin = qs.get("admin") === ADMIN_SECRET;
 
 const titleRu = document.getElementById("titleRu");
-const titleDe = document.getElementById("titleDe");
+const titleSk = document.getElementById("titleSk");
+
 if (isAdmin) titleRu.classList.remove("hidden");
-else titleDe.classList.remove("hidden");
+else titleSk.classList.remove("hidden");
 
 const builder = document.getElementById("builder");
 const invoice = document.getElementById("invoice");
 
 function num(v){ return Number(String(v).replace(",", ".")); }
 function money(n){ return num(n).toFixed(2) + " " + CURRENCY; }
+
+// Из GROSS (с налогом) -> NET (без налога) и VAT
+function grossToNet(gross){ return gross / (1 + VAT_RATE); }
+function grossToVat(gross){ return gross - grossToNet(gross); }
 
 /* МЕНЕДЖЕР */
 if (isAdmin) {
@@ -131,8 +142,8 @@ if (isAdmin) {
     const order = b_order.value.trim();
     const title = b_title.value.trim();
     const qty = b_qty.value;
-    const price = b_price.value;
-    const ship = b_ship.value || "0";
+    const price = b_price.value; // GROSS
+    const ship = b_ship.value || "0"; // GROSS
 
     if (!order || !title || !qty || !price) {
       out.textContent = "Заполни: номер заказа, наименование, количество и цену.";
@@ -157,35 +168,50 @@ if (isAdmin) {
 const order = qs.get("order");
 const title = qs.get("title");
 const qty = qs.get("qty");
-const price = qs.get("price");
-const ship = qs.get("ship") || 0;
+const price = qs.get("price"); // unit price GROSS
+const ship = qs.get("ship") || 0; // shipping GROSS
 
 if (title && qty && price) {
   invoice.classList.remove("hidden");
 
-  const subtotal = num(qty) * num(price);
-  const total = subtotal + num(ship);
+  const qtyNum = num(qty);
+  const unitGross = num(price);
+  const shipGross = num(ship);
+
+  const itemsGross = qtyNum * unitGross;
+  const totalGross = itemsGross + shipGross;
+
+  // Налог считаем из общей суммы (включая доставку), потому что цены введены "с DPH".
+  const totalNet = grossToNet(totalGross);
+  const totalVat = totalGross - totalNet;
+
+  // Для отображения "Medzisúčet (bez DPH)" показываем чистую сумму товаров без доставки (NET),
+  // а доставку показываем отдельной строкой (GROSS), как и раньше.
+  const itemsNet = grossToNet(itemsGross);
 
   t_order.textContent = order || "—";
   t_title.textContent = title;
   t_qty.textContent = qty;
-  t_price.textContent = money(price);
-  t_sum.textContent = money(subtotal);
 
-  t_subtotal.textContent = money(subtotal);
-  t_ship.textContent = money(ship);
-  t_total.textContent = money(total);
+  t_price_gross.textContent = money(unitGross);
+  t_sum_gross.textContent = money(itemsGross);
+
+  t_subtotal_net.textContent = money(itemsNet);
+  t_ship_gross.textContent = money(shipGross);
+
+  t_vat_rate_label.textContent = Math.round(VAT_RATE * 100) + " %";
+  t_vat.textContent = money(totalVat);
+
+  t_total_gross.textContent = money(totalGross);
 
   pay.onclick = async () => {
     pay.disabled = true;
-    pay.textContent = "Weiterleitung...";
+    pay.textContent = "Presmerovanie...";
     try {
       const resp = await fetch(INVOICE_API_URL, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          order, title, qty, price, ship
-        })
+        body: JSON.stringify({ order, title, qty, price, ship })
       });
 
       const data = await resp.json().catch(()=>null);
@@ -196,8 +222,8 @@ if (title && qty && price) {
       window.location.href = data.redirect_url;
     } catch (e) {
       pay.disabled = false;
-      pay.textContent = "Jetzt bezahlen";
-      alert("Zahlung konnte nicht gestartet werden. Bitte erneut versuchen.");
+      pay.textContent = "Zaplatiť teraz";
+      alert("Platbu sa nepodarilo spustiť. Skúste to znova.");
     }
   };
 }
