@@ -17,7 +17,7 @@
        "address": "Berlin, Teststr. 1",
        "quantity": 1,
       "landing": "lp-003",
-      "page_url": "https://omniqlo.store/landings/lp-003/",
+      "page_url": "https://omniklad.com/landings/lp-003/",
       "utm": {"source":"test","campaign":"demo"}
     }'
   ```
