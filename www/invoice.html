@@ -216,14 +216,15 @@ if (title && qty && price) {
 
       const data = await resp.json().catch(()=>null);
       if (!resp.ok || !data || !data.ok || !data.redirect_url) {
-        throw new Error("Invalid response");
+        const msg = (data && data.error) ? String(data.error) : "Platbu sa nepodarilo spustiť. Skúste to znova.";
+        throw new Error(msg);
       }
 
       window.location.href = data.redirect_url;
     } catch (e) {
       pay.disabled = false;
       pay.textContent = "Zaplatiť teraz";
-      alert("Platbu sa nepodarilo spustiť. Skúste to znova.");
+      alert(e && e.message ? e.message : "Platbu sa nepodarilo spustiť. Skúste to znova.");
     }
   };
 }
